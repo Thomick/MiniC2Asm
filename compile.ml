@@ -1,76 +1,89 @@
 open CAST
 open Genlab
 
+let rec print_list l =
+  match l with
+  |[] -> ()
+  |(v,id)::t -> print_string (String.concat "" [v;", "]);
+                print_list t;;
+
+let rec search_var_id s vl = match vl with
+        |[] -> failwith "Indefined variable"
+        |(v,vid)::t -> if v=s then vid
+                      else search_var_id s t
+
 let compile out decl_list =
-  let rec string_of_dec l n = match l with
-    |[] -> "",n,[]
+  let rec string_of_dec l n vl = match l with
+    |[] -> "",n,vl
     |h::suite ->
-      let l,var_cnt,var_list = string_of_dec suite n in
       begin
         match h with
-        |CDECL(_,var) ->"",var_cnt +1,((var,var_cnt)::var_list)
+        |CDECL(_,var) ->string_of_dec suite (n+1) ((var,n)::vl)
         |CFUN(_,f,args,(_,code)) ->
-          let dec_string , new_var_cnt, new_var_list = string_of_dec args var_cnt in
-          String.concat "" ["fn_";f;":\n";
+          let dec_string , f_var_cnt , f_var_list = string_of_dec args 1 vl in
+          let cur_str = String.concat "" ["fn_";f;":\n";
                             "push %rbp\n";"mov %rsp, %rbp\n";
                             dec_string;
-                            string_of_code code (n+2);String.make n ' ';l] , 0, var_list
+                            string_of_code code f_var_cnt f_var_list]
+          in let l,new_var_cnt, new_var_list = string_of_dec suite n vl in
+          String.concat "" [cur_str;l] , new_var_cnt, new_var_list
       end
-  and string_of_code c n = match c with
+  and string_of_code c var_cnt var_list = match c with
     |CBLOCK(decs,code) ->
-      let dec_string, var_cnt,var_list = string_of_dec decs n in
+      let dec_string, var_cnt,var_list = string_of_dec decs var_cnt var_list in
       String.concat "" [dec_string;
-                        string_of_codelist code (n+2)]
+                        string_of_codelist code var_cnt var_list]
     |CEXPR((_,e)) ->
-      String.concat "" [String.make n ' ';"CEXPR{";string_of_expr e "";"}\n"]
+      String.concat "" [string_of_expr e var_list ""]
     |CIF((_,e),(_,c1),(_,c2)) ->
-      String.concat "" [String.make n ' ';
-                        "CIF{\n";
-                        string_of_expr e  "";"\n";
-                        string_of_code c1 0;"\n";
-                        string_of_code c2 0;"\n";
-                        String.make n ' ';"}\n"]
+      String.concat "" ["CIF{\n";
+                        string_of_expr e var_list "";"\n";
+                        string_of_code c1 var_cnt var_list;"\n";
+                        string_of_code c2 var_cnt var_list;"\n";"}\n"]
     |CWHILE((_,e),(_,c)) ->
-      String.concat "" [String.make n ' ';
-                        "CWHILE{\n";string_of_expr e "";string_of_code c (n+2);
-                        String.make n ' ';"}\n"]
+      String.concat "" ["CWHILE{\n";string_of_expr e var_list "";string_of_code c var_cnt var_list;
+                        "}\n"]
     |CRETURN(Some(_,e)) ->
-      String.concat "" [string_of_expr e "%eax";"pop %rbp\nret"]
+      String.concat "" [string_of_expr e var_list "%eax";"pop %rbp\nret"]
     |CRETURN(None) ->
-      String.concat "" [String.make n ' ';"CRETURN{ }\n"]
-  and string_of_expr e loc_var = match e with
+      String.concat "" ["CRETURN{ }\n"]
+  and string_of_expr e var_list loc_var = match e with
     |VAR(s) ->
-      String.concat "" ["VAR{";s;"}"]
+      String.concat "" ["mov -0x";string_of_int (4*(search_var_id s var_list)); "(%rbp), ";loc_var;"\n"]
     |CST(p) ->
       String.concat "" ["mov $";string_of_int p;", ";loc_var;"\n"]
     |STRING(s) ->
       String.concat "" ["STRING{";s;"}"]
     |SET_VAR(s,(_,e1)) ->
-      String.concat "" ["SET_VAR{";s;", ";string_of_expr e1 loc_var;"}"]
+      let expr_str = string_of_expr e1 var_list "%rax" in
+      String.concat "" [expr_str; "mov %rax, -0x";string_of_int (4*(search_var_id s var_list)); "(%rbp)\n"]
     |SET_ARRAY(s,(_,e1),(_,e2)) ->
       String.concat "" ["SET_ARRAY{";s;", ";
-                        string_of_expr e1 loc_var;", ";
-                        string_of_expr e2 loc_var;"}"]
+                        string_of_expr e1 var_list loc_var;", ";
+                        string_of_expr e2 var_list loc_var;"}"]
     |CALL(s,l) ->
-      let list=string_of_exprlist l 0 in
+      let list=string_of_exprlist l var_list 0 in
       String.concat "" ["CALL{";s;", ";list;"}"]
     |OP1(mop,(_,e1)) ->
-      String.concat "" ["OP1{";string_of_monop mop;"{";string_of_expr e1 loc_var;"}} "]
+      String.concat "" ["OP1{";string_of_monop mop;"{";string_of_expr e1 var_list loc_var;"}} "]
     |OP2(bop,(_,e1),(_,e2)) ->
-      String.concat "" ["OP2{";string_of_binop bop;"{";string_of_expr e1 loc_var;", ";string_of_expr e2 loc_var;"}"]
+      String.concat "" ["OP2{";string_of_binop bop;"{";string_of_expr e1 var_list loc_var;", ";string_of_expr e2 var_list loc_var;"}"]
     |CMP(cop,(_,e1),(_,e2)) ->
-      String.concat "" ["CMP{";string_of_cmpop cop;"{"; string_of_expr e1 loc_var;", ";string_of_expr e2 loc_var;"}}\n"]
+      String.concat "" ["CMP{";string_of_cmpop cop;"{"; string_of_expr e1 var_list loc_var;", ";string_of_expr e2 var_list loc_var;"}}\n"]
     |EIF((_,e1),(_,e2),(_,e3)) ->
-      String.concat "" ["EIF{\n";string_of_expr e1 loc_var;"\n";string_of_expr e2 loc_var;"\n";string_of_expr e3 loc_var;"\n";"}\n"]
-    |ESEQ(l) -> let string=string_of_exprlist l 0 in
-                String.concat "" ["ESEQ{";string;"}\n"]
-  and string_of_exprlist l n = match l with
+      String.concat "" ["EIF{\n";string_of_expr e1 var_list loc_var;"\n";string_of_expr e2 var_list loc_var;"\n";string_of_expr e3 var_list loc_var;"\n";"}\n"]
+    |ESEQ(l) -> let rec seq li = 
+      match li with
+        |[] -> ""
+        |h::t -> String.concat "" [string_of_expr (e_of_expr h) var_list loc_var;seq t]
+      in seq l
+  and string_of_exprlist l var_list loc_var = match l with
     |[] -> ""
-    |(_,exp)::r -> String.concat ", " [string_of_expr exp "";string_of_exprlist r n]
-  and string_of_codelist l n = match l with
+    |(_,exp)::r -> String.concat ", " [string_of_expr exp var_list "";string_of_exprlist r var_list loc_var]
+  and string_of_codelist l var_cnt var_list = match l with
     |[] -> ""
     |(_,code)::r ->
-      String.concat "" [string_of_code code n;string_of_codelist r n]
+      String.concat "" [string_of_code code var_cnt var_list;string_of_codelist r var_cnt var_list]
   and string_of_monop mop = match mop with
     |M_MINUS    -> "M_MINUS"
     |M_NOT      -> "M_NOT"
@@ -90,7 +103,7 @@ let compile out decl_list =
     |C_LE -> "C_LE"
     |C_EQ -> "C_EQ"
   in
-  let str,n,var_list = string_of_dec decl_list 0 in
+  let str,n,var_list = string_of_dec decl_list 1 [] in
   let final_str = String.concat "" [".global main\n";
   "main:\ncall fn_main\nmov %rax, %rdi # return value\nmov $60, %rax # syscall for return\nsyscall\n\n"
   ;str;"\n"] in
