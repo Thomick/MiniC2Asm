@@ -4,33 +4,39 @@ open Genlab
 let rec print_list l =
   match l with
   |[] -> ()
-  |(v,id)::t -> print_string (String.concat "" [v;", "]);
+  |(v,did,in_func)::t -> print_string (String.concat "" [v;", "]);
                 print_list t;;
 
 let rec search_var_id s vl = match vl with
         |[] -> failwith "Indefined variable"
-        |(v,vid)::t -> if v=s then vid
+        |(v,vid,in_func)::t -> if v=s then 
+                                if in_func then String.concat "" ["-0x";string_of_int (8*vid) ;"(%rbp)"]
+                                else String.concat "" ["global_";v ;"(%rip)"]
                       else search_var_id s t
 
+let rec define_global_var vl = match vl with
+  |[] -> ""
+  |(v,_,_)::t -> String.concat "" ["global_";v ;": .long 0\n";define_global_var t]
+
 let compile out decl_list =
-  let rec string_of_dec l n vl = match l with
+  let rec string_of_dec l n vl in_function = match l with
     |[] -> "",n,vl
     |h::suite ->
       begin
         match h with
-        |CDECL(_,var) ->string_of_dec suite (n+1) ((var,n)::vl)
+        |CDECL(_,var) ->string_of_dec suite (n+1) ((var,n,in_function)::vl) in_function
         |CFUN(_,f,args,(_,code)) ->
-          let dec_string , f_var_cnt , f_var_list = string_of_dec args 1 vl in
+          let dec_string , f_var_cnt , f_var_list = string_of_dec args 1 vl true in
           let cur_str = String.concat "" ["fn_";f;":\n";
                             "push %rbp\n";"mov %rsp, %rbp\n";
                             dec_string;
                             string_of_code code f_var_cnt f_var_list]
-          in let l,new_var_cnt, new_var_list = string_of_dec suite n vl in
+          in let l,new_var_cnt, new_var_list = string_of_dec suite n vl in_function in
           String.concat "" [cur_str;l] , new_var_cnt, new_var_list
       end
   and string_of_code c var_cnt var_list = match c with
     |CBLOCK(decs,code) ->
-      let dec_string, var_cnt,var_list = string_of_dec decs var_cnt var_list in
+      let dec_string, var_cnt,var_list = string_of_dec decs var_cnt var_list true in
       String.concat "" [dec_string;
                         string_of_codelist code var_cnt var_list]
     |CEXPR((_,e)) ->
@@ -49,14 +55,14 @@ let compile out decl_list =
       String.concat "" ["CRETURN{ }\n"]
   and string_of_expr e var_list loc_var = match e with
     |VAR(s) ->
-      String.concat "" ["mov -0x";string_of_int (4*(search_var_id s var_list)); "(%rbp), ";loc_var;"\n"]
+      String.concat "" ["mov ";search_var_id s var_list; ", ";loc_var;"\n"]
     |CST(p) ->
       String.concat "" ["mov $";string_of_int p;", ";loc_var;"\n"]
     |STRING(s) ->
       String.concat "" ["STRING{";s;"}"]
     |SET_VAR(s,(_,e1)) ->
       let expr_str = string_of_expr e1 var_list "%rax" in
-      String.concat "" [expr_str; "mov %rax, -0x";string_of_int (4*(search_var_id s var_list)); "(%rbp)\n"]
+      String.concat "" [expr_str; "mov %rax, ";search_var_id s var_list; "\n"]
     |SET_ARRAY(s,(_,e1),(_,e2)) ->
       String.concat "" ["SET_ARRAY{";s;", ";
                         string_of_expr e1 var_list loc_var;", ";
@@ -103,8 +109,8 @@ let compile out decl_list =
     |C_LE -> "C_LE"
     |C_EQ -> "C_EQ"
   in
-  let str,n,var_list = string_of_dec decl_list 1 [] in
-  let final_str = String.concat "" [".global main\n";
+  let str,n,var_list = string_of_dec decl_list 1 [] false in
+  let final_str = String.concat "" [".data\n.align 8\n";define_global_var var_list;".global main\n";
   "main:\ncall fn_main\nmov %rax, %rdi # return value\nmov $60, %rax # syscall for return\nsyscall\n\n"
   ;str;"\n"] in
   Printf.fprintf out "%s" final_str;;
