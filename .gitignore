@@ -1,3 +1,13 @@
+*.annot
+*.cmo
+*.cma
+*.cmi
+*.a
+*.o
+*.cmx
+*.cmxs
+*.cmxa
+
 # ocamlbuild working directory
 _build/
 
@@ -5,12 +15,20 @@ _build/
 *.byte
 *.native
 
-# Object files
-*.o
+# oasis generated files
+setup.data
+setup.log
 
-# Executables
-*.exe
-*.out
+# Merlin configuring file for Vim and Emacs
+.merlin
+
+# Dune generated files
+*.install
+
+# Local OPAM switch
+_opam/
 
 # Custom
 Exemples/
+mcc
+a.out
