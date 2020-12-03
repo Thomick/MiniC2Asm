@@ -71,11 +71,11 @@ let compile out decl_list =
       let list=string_of_exprlist l var_list in
       String.concat "" ["CALL{";s;", ";list;"}"]
     |OP1(mop,(_,e1)) ->
-      String.concat "" ["OP1{";string_of_monop mop;"{";string_of_expr e1 var_list ;"}} "]
+      String.concat "" [string_of_expr e1 var_list ;string_of_monop mop;]
     |OP2(bop,(_,e1),(_,e2)) ->
       String.concat "" [string_of_expr e2 var_list ;"    push %rax\n";string_of_expr e1 var_list ; "    pop %rcx\n";string_of_binop bop]
     |CMP(cop,(_,e1),(_,e2)) ->
-      String.concat "" ["CMP{";string_of_cmpop cop;"{"; string_of_expr e1 var_list ;", ";string_of_expr e2 var_list ;"}}\n"]
+      String.concat "" [string_of_expr e2 var_list ;"    push %rax\n";string_of_expr e1 var_list ; "    pop %rcx\n";string_of_cmpop cop]
     |EIF((_,e1),(_,e2),(_,e3)) ->
       String.concat "" ["EIF{\n";string_of_expr e1 var_list ;"\n";string_of_expr e2 var_list ;"\n";string_of_expr e3 var_list ;"\n";"}\n"]
     |ESEQ(l) -> let rec seq li = 
@@ -91,7 +91,7 @@ let compile out decl_list =
     |(_,code)::r ->
       String.concat "" [string_of_code code var_cnt var_list;string_of_codelist r var_cnt var_list]
   and string_of_monop mop = match mop with
-    |M_MINUS    -> "M_MINUS"
+    |M_MINUS    -> "    neg %eax\n"
     |M_NOT      -> "M_NOT"
     |M_POST_INC -> "M_POST_INC"
     |M_POST_DEC -> "M_POST_DEC"
