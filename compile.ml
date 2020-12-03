@@ -47,8 +47,9 @@ let compile out decl_list =
       String.concat "" [string_of_expr e var_list ;"    cmp $0, %eax\n    je ";label_e3;"\n";string_of_code c1 var_cnt var_list ;
                         "    jmp "; label_post;"\n"; label_e3;":\n";string_of_code c2 var_cnt var_list ;label_post;":\n"]
     |CWHILE((_,e),(_,c)) ->
-      String.concat "" ["CWHILE{\n";string_of_expr e var_list;string_of_code c var_cnt var_list;
-                        "}\n"]
+      let label_begin = genlab "while_begin" and label_end = genlab "while_end" in
+      String.concat "" [label_begin;":\n";string_of_expr e var_list ;"    cmp $0, %eax\n    je ";label_end;"\n";string_of_code c var_cnt var_list ;
+                        "    jmp "; label_begin;"\n";label_end;":\n"]
     |CRETURN(Some(_,e)) ->
       String.concat "" [string_of_expr e var_list;"    mov %rbp, %rsp\n    pop %rbp\n    ret\n"]
     |CRETURN(None) ->
