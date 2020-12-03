@@ -75,7 +75,8 @@ let compile out decl_list =
     |OP2(bop,(_,e1),(_,e2)) ->
       String.concat "" [string_of_expr e2 var_list ;"    push %rax\n";string_of_expr e1 var_list ; "    pop %rcx\n";string_of_binop bop]
     |CMP(cop,(_,e1),(_,e2)) ->
-      String.concat "" [string_of_expr e2 var_list ;"    push %rax\n";string_of_expr e1 var_list ; "    pop %rcx\n";string_of_cmpop cop]
+      String.concat "" [string_of_expr e2 var_list ;"    push %rax\n";string_of_expr e1 var_list ; "    pop %rcx\n";
+                        "    cmp %rcx, %rax\n    mov $0, %rax\n";string_of_cmpop cop]
     |EIF((_,e1),(_,e2),(_,e3)) ->
       String.concat "" ["EIF{\n";string_of_expr e1 var_list ;"\n";string_of_expr e2 var_list ;"\n";string_of_expr e3 var_list ;"\n";"}\n"]
     |ESEQ(l) -> let rec seq li = 
@@ -91,8 +92,8 @@ let compile out decl_list =
     |(_,code)::r ->
       String.concat "" [string_of_code code var_cnt var_list;string_of_codelist r var_cnt var_list]
   and string_of_monop mop = match mop with
-    |M_MINUS    -> "    neg %eax\n"
-    |M_NOT      -> "M_NOT"
+    |M_MINUS    -> "    neg %rax\n"
+    |M_NOT      -> "    not %rax\n"
     |M_POST_INC -> "M_POST_INC"
     |M_POST_DEC -> "M_POST_DEC"
     |M_PRE_INC  -> "M_PRE_INC"
@@ -105,9 +106,9 @@ let compile out decl_list =
     |S_SUB   -> "    sub %rcx, %rax\n"
     |S_INDEX -> "S_INDEX"
   and string_of_cmpop cop = match cop with
-    |C_LT -> "C_LT"
-    |C_LE -> "C_LE"
-    |C_EQ -> "C_EQ"
+    |C_LT -> "    setg   %al\n"
+    |C_LE -> "    setl   %al\n"
+    |C_EQ -> "    sete   %al\n"
   in
   let str,n,var_list = string_of_dec decl_list 1 [] false in
   let final_str = String.concat "" [".data\n.align 8\n";define_global_var var_list;".global main\n";str] in
