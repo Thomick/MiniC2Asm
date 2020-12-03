@@ -78,7 +78,9 @@ let compile out decl_list =
       String.concat "" [string_of_expr e2 var_list ;"    push %rax\n";string_of_expr e1 var_list ; "    pop %rcx\n";
                         "    cmp %rcx, %rax\n    mov $0, %rax\n";string_of_cmpop cop]
     |EIF((_,e1),(_,e2),(_,e3)) ->
-      String.concat "" ["EIF{\n";string_of_expr e1 var_list ;"\n";string_of_expr e2 var_list ;"\n";string_of_expr e3 var_list ;"\n";"}\n"]
+      let label_e3 = genlab "if_e3" and label_post = genlab "if_post" in
+      String.concat "" [string_of_expr e1 var_list ;"    cmpl $0, %eax\n    je ";label_e3;"\n";string_of_expr e2 var_list ;
+      "    jmp "; label_post;"\n"; label_e3;":\n";string_of_expr e3 var_list ;label_post;":\n"]
     |ESEQ(l) -> let rec seq li = 
       match li with
         |[] -> ""
@@ -106,9 +108,9 @@ let compile out decl_list =
     |S_SUB   -> "    sub %rcx, %rax\n"
     |S_INDEX -> "S_INDEX"
   and string_of_cmpop cop = match cop with
-    |C_LT -> "    setg   %al\n"
-    |C_LE -> "    setl   %al\n"
-    |C_EQ -> "    sete   %al\n"
+    |C_LT -> "    setl %al\n"
+    |C_LE -> "    setle %al\n"
+    |C_EQ -> "    sete %al\n"
   in
   let str,n,var_list = string_of_dec decl_list 1 [] false in
   let final_str = String.concat "" [".data\n.align 8\n";define_global_var var_list;".global main\n";str] in
