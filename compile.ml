@@ -98,11 +98,11 @@ let compile out decl_list =
     |M_PRE_INC  -> "M_PRE_INC"
     |M_PRE_DEC  -> "M_PRE_DEC"
   and string_of_binop bop = match bop with
-    |S_MUL   -> "S_MUL"
-    |S_DIV   -> "S_DIV"
-    |S_MOD   -> "S_MOD"
+    |S_MUL   -> "    imul %rcx, %rax\n"
+    |S_DIV   -> "    cqo\n    idiv %rcx\n"
+    |S_MOD   -> "    cqo\n    idiv %rcx\n    mov %rdx, %rax\n"
     |S_ADD   -> "    add %rcx, %rax\n"
-    |S_SUB   -> "S_SUB"
+    |S_SUB   -> "    sub %rcx, %rax\n"
     |S_INDEX -> "S_INDEX"
   and string_of_cmpop cop = match cop with
     |C_LT -> "C_LT"
