@@ -25,11 +25,16 @@ let compile out decl_list =
       begin
         match h with
         |CDECL(_,var) ->let nl = if in_function then n+1 else n in
-          let dec_string, new_var_cnt, new_var_list = string_of_dec suite nl ((var,n,in_function)::vl) in_function
-          in String.concat "" ["    push $0\n"; dec_string] , new_var_cnt,new_var_list
+          string_of_dec suite nl ((var,n,in_function)::vl) in_function
         |CFUN(_,f,args,(_,code)) ->
-          let dec_string , f_var_cnt , f_var_list = string_of_dec args 1 vl true in
-          let cur_str = String.concat "" [f;":\n    push %rbp\n    mov %rsp, %rbp\n";
+          let rec push_args arg_list count var_list =
+            match arg_list with
+            |[] -> "",count,var_list
+            |CDECL(_,var)::t -> let str_next, var_count_next, var_list_next =  push_args t (count+1) ((var,count,true)::var_list) in
+              (String.concat "" ["    push ";string_of_int (8*(count+1));"(%rbp)\n"; str_next]), var_count_next, var_list_next
+            |CFUN(_,_,_,_)::t -> failwith "Syntax error : can't define a function inside the argument declaration of another function"
+          in let dec_string , f_var_cnt , f_var_list = push_args args 1 vl in
+          let cur_str = String.concat "" ["\n";f;":\n    push %rbp\n    mov %rsp, %rbp\n";
                                           dec_string;
                                           string_of_code code f_var_cnt f_var_list]
           in let l,new_var_cnt, new_var_list = string_of_dec suite n vl in_function in
@@ -38,17 +43,17 @@ let compile out decl_list =
   and string_of_code c var_cnt var_list = match c with
     |CBLOCK(decs,code) ->
       let dec_string, new_var_cnt,new_var_list = string_of_dec decs var_cnt var_list true in
-      String.concat "" [dec_string;
+      String.concat "" [dec_string; "    lea -";string_of_int (8*new_var_cnt);"(%rbp), %rsp\n";
                         string_of_codelist code new_var_cnt new_var_list; "    lea -";string_of_int (8*var_cnt);"(%rbp), %rsp\n"]
     |CEXPR((_,e)) ->
       String.concat "" [string_of_expr e var_list]
     |CIF((_,e),(_,c1),(_,c2)) ->
       let label_e3 = genlab "else" and label_post = genlab "if_post" in
-      String.concat "" [string_of_expr e var_list ;"    cmp $0, %eax\n    je ";label_e3;"\n";string_of_code c1 var_cnt var_list ;
+      String.concat "" [string_of_expr e var_list ;"    cmp $0, %rax\n    je ";label_e3;"\n";string_of_code c1 var_cnt var_list ;
                         "    jmp "; label_post;"\n"; label_e3;":\n";string_of_code c2 var_cnt var_list ;label_post;":\n"]
     |CWHILE((_,e),(_,c)) ->
       let label_begin = genlab "while_begin" and label_end = genlab "while_end" in
-      String.concat "" [label_begin;":\n";string_of_expr e var_list ;"    cmp $0, %eax\n    je ";label_end;"\n";string_of_code c var_cnt var_list ;
+      String.concat "" [label_begin;":\n";string_of_expr e var_list ;"    cmp $0, %rax\n    je ";label_end;"\n";string_of_code c var_cnt var_list ;
                         "    jmp "; label_begin;"\n";label_end;":\n"]
     |CRETURN(Some(_,e)) ->
       String.concat "" [string_of_expr e var_list;"    mov %rbp, %rsp\n    pop %rbp\n    ret\n"]
@@ -69,10 +74,19 @@ let compile out decl_list =
                         string_of_expr e1 var_list ;", ";
                         string_of_expr e2 var_list ;"}"]
     |CALL(s,l) ->
-      let list=string_of_exprlist l var_list in
-      String.concat "" ["CALL{";s;", ";list;"}"]
-    |OP1(mop,(_,e1)) ->
-      String.concat "" [string_of_expr e1 var_list ;string_of_monop mop;]
+      let list=push_exprlist l var_list in
+      String.concat "" [list;"    call ";s;"\n    add $";string_of_int (8*(List.length l));", %rsp\n"]
+    |OP1(mop,(_,e1)) ->(match mop with
+        |M_MINUS    -> String.concat "" [string_of_expr e1 var_list ;"    neg %rax\n"]
+        |M_NOT      -> String.concat "" [string_of_expr e1 var_list ;"    not %rax\n"]
+        |M_POST_INC -> (match e1 with |VAR(s) -> String.concat "" [string_of_expr e1 var_list ;"    incq ";search_var_id s var_list;"\n"]
+                                      |_ -> failwith "You can only increment variables")
+        |M_POST_DEC -> (match e1 with |VAR(s) -> String.concat "" [string_of_expr e1 var_list ;"    decq ";search_var_id s var_list;"\n"]
+                                      |_ -> failwith "You can only decrement variables")
+        |M_PRE_INC  -> (match e1 with |VAR(s) -> String.concat "" ["    incq ";search_var_id s var_list;"\n";string_of_expr e1 var_list]
+                                      |_ -> failwith "You can only increment variables")
+        |M_PRE_DEC  -> (match e1 with |VAR(s) -> String.concat "" ["    decq ";search_var_id s var_list;"\n";string_of_expr e1 var_list]
+                                      |_ -> failwith "You can only decrement variables"))
     |OP2(bop,(_,e1),(_,e2)) ->
       String.concat "" [string_of_expr e2 var_list ;"    push %rax\n";string_of_expr e1 var_list ; "    pop %rcx\n";string_of_binop bop]
     |CMP(cop,(_,e1),(_,e2)) ->
@@ -80,27 +94,20 @@ let compile out decl_list =
                         "    cmp %rcx, %rax\n    mov $0, %rax\n";string_of_cmpop cop]
     |EIF((_,e1),(_,e2),(_,e3)) ->
       let label_e3 = genlab "if_e3" and label_post = genlab "if_post" in
-      String.concat "" [string_of_expr e1 var_list ;"    cmpl $0, %eax\n    je ";label_e3;"\n";string_of_expr e2 var_list ;
+      String.concat "" [string_of_expr e1 var_list ;"    cmpl $0, %rax\n    je ";label_e3;"\n";string_of_expr e2 var_list ;
                         "    jmp "; label_post;"\n"; label_e3;":\n";string_of_expr e3 var_list ;label_post;":\n"]
     |ESEQ(l) -> let rec seq li = 
                   match li with
                   |[] -> ""
                   |h::t -> String.concat "" [string_of_expr (e_of_expr h) var_list ;seq t]
       in seq l
-  and string_of_exprlist l var_list  = match l with
+  and push_exprlist l var_list  = match l with
     |[] -> ""
-    |(_,exp)::r -> String.concat ", " [string_of_expr exp var_list ;string_of_exprlist r var_list]
+    |(_,exp)::r -> String.concat "" [push_exprlist r var_list; string_of_expr exp var_list; "    push %rax\n"]
   and string_of_codelist l var_cnt var_list = match l with
     |[] -> ""
     |(_,code)::r ->
       String.concat "" [string_of_code code var_cnt var_list;string_of_codelist r var_cnt var_list]
-  and string_of_monop mop = match mop with
-    |M_MINUS    -> "    neg %rax\n"
-    |M_NOT      -> "    not %rax\n"
-    |M_POST_INC -> "M_POST_INC"
-    |M_POST_DEC -> "M_POST_DEC"
-    |M_PRE_INC  -> "M_PRE_INC"
-    |M_PRE_DEC  -> "M_PRE_DEC"
   and string_of_binop bop = match bop with
     |S_MUL   -> "    imul %rcx, %rax\n"
     |S_DIV   -> "    cqo\n    idiv %rcx\n"
