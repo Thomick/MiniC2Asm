@@ -1,3 +1,5 @@
+(*Written by Thomas MICHEL for ProjetCOCass*)
+
 open CAST
 open Genlab
 
@@ -94,7 +96,7 @@ let compile out decl_list =
                         "    cmp %rcx, %rax\n    mov $0, %rax\n";string_of_cmpop cop]
     |EIF((_,e1),(_,e2),(_,e3)) ->
       let label_e3 = genlab "if_e3" and label_post = genlab "if_post" in
-      String.concat "" [string_of_expr e1 var_list ;"    cmpl $0, %rax\n    je ";label_e3;"\n";string_of_expr e2 var_list ;
+      String.concat "" [string_of_expr e1 var_list ;"    cmp $0, %rax\n    je ";label_e3;"\n";string_of_expr e2 var_list ;
                         "    jmp "; label_post;"\n"; label_e3;":\n";string_of_expr e3 var_list ;label_post;":\n"]
     |ESEQ(l) -> let rec seq li = 
                   match li with
