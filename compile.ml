@@ -20,6 +20,21 @@ let rec define_global_var vl = match vl with
   |[] -> ""
   |(v,_,_)::t -> String.concat "" ["    global_";v ;": .long 0\n";define_global_var t]
 
+let rec gather_args arg_list count var_list =
+  match arg_list with
+  |[] -> "",count,var_list
+  |CDECL(_,var)::t -> (let str_next, var_count_next, var_list_next =  gather_args t (count+1) ((var,count,true)::var_list) in
+                       match count with
+                       |1 -> (String.concat "" ["    push %rdi\n"; str_next]), var_count_next, var_list_next
+                       |2 -> (String.concat "" ["    push %rsi\n"; str_next]), var_count_next, var_list_next
+                       |3 -> (String.concat "" ["    push %rdx\n"; str_next]), var_count_next, var_list_next
+                       |4 -> (String.concat "" ["    push %rcx\n"; str_next]), var_count_next, var_list_next
+                       |5 -> (String.concat "" ["    push %r8\n"; str_next]), var_count_next, var_list_next
+                       |6 -> (String.concat "" ["    push %r9\n"; str_next]), var_count_next, var_list_next
+                       |_ -> (String.concat "" ["    push ";string_of_int (8*(count-5));"(%rbp)\n"; str_next]), var_count_next, var_list_next)
+
+  |CFUN(_,_,_,_)::t -> failwith "Syntax error : can't define a function inside the argument declaration of another function"
+
 let compile out decl_list =
   let rec string_of_dec l n vl in_function = match l with
     |[] -> "",n,vl
@@ -29,13 +44,7 @@ let compile out decl_list =
         |CDECL(_,var) ->let nl = if in_function then n+1 else n in
           string_of_dec suite nl ((var,n,in_function)::vl) in_function
         |CFUN(_,f,args,(_,code)) ->
-          let rec push_args arg_list count var_list =
-            match arg_list with
-            |[] -> "",count,var_list
-            |CDECL(_,var)::t -> let str_next, var_count_next, var_list_next =  push_args t (count+1) ((var,count,true)::var_list) in
-              (String.concat "" ["    push ";string_of_int (8*(count+1));"(%rbp)\n"; str_next]), var_count_next, var_list_next
-            |CFUN(_,_,_,_)::t -> failwith "Syntax error : can't define a function inside the argument declaration of another function"
-          in let dec_string , f_var_cnt , f_var_list = push_args args 1 vl in
+          let dec_string , f_var_cnt , f_var_list = gather_args args 1 vl in
           let cur_str = String.concat "" ["\n";f;":\n    push %rbp\n    mov %rsp, %rbp\n";
                                           dec_string;
                                           string_of_code code f_var_cnt f_var_list]
@@ -76,7 +85,7 @@ let compile out decl_list =
                         string_of_expr e1 var_list ;", ";
                         string_of_expr e2 var_list ;"}"]
     |CALL(s,l) ->
-      let list=push_exprlist l var_list in
+      let list=set_args l 1 var_list in
       String.concat "" [list;"    call ";s;"\n    add $";string_of_int (8*(List.length l));", %rsp\n"]
     |OP1(mop,(_,e1)) ->(match mop with
         |M_MINUS    -> String.concat "" [string_of_expr e1 var_list ;"    neg %rax\n"]
@@ -103,9 +112,17 @@ let compile out decl_list =
                   |[] -> ""
                   |h::t -> String.concat "" [string_of_expr (e_of_expr h) var_list ;seq t]
       in seq l
-  and push_exprlist l var_list  = match l with
+  and set_args expr_list count var_list = 
+    match expr_list with
     |[] -> ""
-    |(_,exp)::r -> String.concat "" [push_exprlist r var_list; string_of_expr exp var_list; "    push %rax\n"]
+    |(_,exp)::t -> (match count with 
+        |1 -> (String.concat "" [set_args t (count+1) var_list; string_of_expr exp var_list; "    mov %rax, %rdi\n"])
+        |2 -> (String.concat "" [set_args t (count+1) var_list; string_of_expr exp var_list; "    mov %rax, %rsi\n"])
+        |3 -> (String.concat "" [set_args t (count+1) var_list; string_of_expr exp var_list; "    mov %rax, %rdx\n"])
+        |4 -> (String.concat "" [set_args t (count+1) var_list; string_of_expr exp var_list; "    mov %rax, %rcx\n"])
+        |5 -> (String.concat "" [set_args t (count+1) var_list; string_of_expr exp var_list; "    mov %rax, %r8\n"])
+        |6 -> (String.concat "" [set_args t (count+1) var_list; string_of_expr exp var_list; "    mov %rax, %r9\n"])
+        |_ -> (String.concat "" [set_args t (count+1) var_list; string_of_expr exp var_list; "    push %rax\n"]))
   and string_of_codelist l var_cnt var_list = match l with
     |[] -> ""
     |(_,code)::r ->
