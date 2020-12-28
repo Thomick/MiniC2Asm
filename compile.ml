@@ -6,13 +6,13 @@ open Genlab
 let rec print_list l =
   match l with
   |[] -> ()
-  |(v,did,in_func)::t -> print_string (String.concat "" [v;", "]);
+  |(v,did,is_local)::t -> print_string (String.concat "" [v;", "]);
     print_list t;;
 
 let rec search_var_id s vl = match vl with
   |[] -> failwith (String.concat "" ["Indefined variable "; s])
-  |(v,vid,in_func)::t -> if v=s then 
-      if in_func then String.concat "" ["-";string_of_int (8*vid) ;"(%rbp)"]
+  |(v,vid,is_local)::t -> if v=s then 
+      if is_local then String.concat "" ["-";string_of_int (8*vid) ;"(%rbp)"]
       else String.concat "" ["global_";v ;"(%rip)"]
     else search_var_id s t
 
@@ -35,22 +35,35 @@ let rec gather_args arg_list count var_list =
 
   |CFUN(_,_,_,_)::t -> failwith "Syntax error : can't define a function inside the argument declaration of another function"
 
+let rec global_var_dec dl vl= 
+  match dl with
+  |[]->vl
+  |h::t -> match h with
+    |CDECL(_,var)-> global_var_dec t ((var,0,false)::vl)
+    |CFUN(_) -> global_var_dec t vl
+
 let compile out decl_list =
   let strings_list = ref [] in
-  let rec string_of_dec l n vl in_function = match l with
+  let rec string_of_dec l n vl is_local = match l with
     |[] -> "",n,vl
     |h::suite ->
       begin
         match h with
-        |CDECL(_,var) ->let nl = if in_function then n+1 else n in
-          string_of_dec suite nl ((var,n,in_function)::vl) in_function
+        |CDECL(_,var) ->
+          if is_local then
+            string_of_dec suite (n+1) ((var,n,is_local)::vl) is_local
+          else
+            string_of_dec suite n vl is_local
         |CFUN(_,f,args,(_,code)) ->
-          let dec_string , f_var_cnt , f_var_list = gather_args args 1 vl in
-          let cur_str = String.concat "" ["\n";f;":\n    push %rbp\n    mov %rsp, %rbp\n";
-                                          dec_string;
-                                          string_of_code code f_var_cnt f_var_list]
-          in let l,new_var_cnt, new_var_list = string_of_dec suite n vl in_function in
-          String.concat "" [cur_str;l] , new_var_cnt, new_var_list
+          if is_local then
+            failwith "Error : Functions can only be declared in the global scope"
+          else
+            let dec_string , f_var_cnt , f_var_list = gather_args args 1 vl in
+            let cur_str = String.concat "" ["\n";f;":\n    push %rbp\n    mov %rsp, %rbp\n";
+                                            dec_string;
+                                            string_of_code code f_var_cnt f_var_list]
+            in let l,_, _ = string_of_dec suite n vl is_local in
+            String.concat "" [cur_str;l] , n, vl
       end
   and string_of_code c var_cnt var_list = match c with
     |CBLOCK(decs,code) ->
@@ -146,6 +159,6 @@ let compile out decl_list =
        match sl with
        |[] -> ""
        |(string_name, string_value)::t -> String.concat "" [ declare_string t;"  "; string_name; ":\n    .string \"";string_value ;"\"\n" ]
-  in let str,n,var_list = string_of_dec decl_list 1 [] false in
+  in let str,n,var_list = string_of_dec decl_list 1 (global_var_dec decl_list []) false in
   let final_str = String.concat "" [".data\n.align 8\n";define_global_var var_list;".text\n"; declare_string (!strings_list);".global main\n";str] in
   Printf.fprintf out "%s" final_str;;
