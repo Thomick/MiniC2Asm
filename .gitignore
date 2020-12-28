@@ -32,3 +32,5 @@ _opam/
 Exemples/
 mcc
 a.out
+Tests_gcc_mcc/
+*.py

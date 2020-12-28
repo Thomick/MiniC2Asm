@@ -39,7 +39,7 @@ let rec global_var_dec dl vl=
   match dl with
   |[]->vl
   |h::t -> match h with
-    |CDECL(_,var)-> global_var_dec t ((var,0,false)::vl)
+    |CDECL(_,var)-> global_var_dec t ((var,-1,false)::vl)
     |CFUN(_) -> global_var_dec t vl
 
 let compile out decl_list =
@@ -68,8 +68,11 @@ let compile out decl_list =
   and string_of_code c var_cnt var_list = match c with
     |CBLOCK(decs,code) ->
       let dec_string, new_var_cnt,new_var_list = string_of_dec decs var_cnt var_list true in
-      String.concat "" [dec_string; "    lea -";string_of_int (8*new_var_cnt);"(%rbp), %rsp\n";
-                        string_of_codelist code new_var_cnt new_var_list; "    lea -";string_of_int (8*var_cnt);"(%rbp), %rsp\n"]
+      if new_var_cnt <> 0 then
+        String.concat "" [dec_string; "    sub $";string_of_int (8*(new_var_cnt-var_cnt));", %rsp\n";
+                          string_of_codelist code new_var_cnt new_var_list; "    add $";string_of_int (8*(new_var_cnt-var_cnt));", %rsp\n"]
+      else
+        String.concat "" [dec_string;string_of_codelist code new_var_cnt new_var_list]
     |CEXPR((_,e)) ->
       String.concat "" [string_of_expr e var_cnt var_list]
     |CIF((_,e),(_,c1),(_,c2)) ->
@@ -100,10 +103,14 @@ let compile out decl_list =
                         string_of_expr e1 var_cnt var_list ;", ";
                         string_of_expr e2 var_cnt var_list ;"}"]
     |CALL(s,l) ->
-      (let list=set_args l 1 var_cnt var_list  in
-       if (var_cnt + List.length l) mod 2 = 0 then 
-         (String.concat "" ["    push $0\n";list;"    call ";s;"\n    lea -";string_of_int (8*var_cnt);"(%rbp), %rsp\n"])
-       else (String.concat "" [list;"    call ";s;"\n    lea -";string_of_int (8*var_cnt);"(%rbp), %rsp\n"]))
+      (let list=set_args l 1 var_cnt var_list and nb_args = List.length l in
+       if nb_args < 7 then 
+         if (var_cnt) mod 2 = 1 then
+           (String.concat "" [list;"    mov $0, %rax\n    call ";s;"\n    movsx %eax, %rax\n"])
+         else (String.concat "" ["    sub $8, %rsp\n";list;"    mov $0, %rax\n    call ";s;"\n    movsx %eax, %rax\n    add $8, %rsp\n"])
+       else if (var_cnt + nb_args) mod 2 = 1 then 
+         (String.concat "" [list;"    mov $0, %rax\n    call ";s;"\n    movsx %eax, %rax\n    add $";string_of_int (8*(nb_args-6));", %rsp\n"])
+       else (String.concat "" ["    sub $8, %rsp\n";list;"    mov $0, %rax\n    call ";s;"\n    movsx %eax, %rax\n    add $";string_of_int (8*(nb_args-6+1));", %rsp\n"]))
     |OP1(mop,(_,e1)) ->(match mop with
         |M_MINUS    -> String.concat "" [string_of_expr e1 var_cnt var_list ;"    neg %rax\n"]
         |M_NOT      -> String.concat "" [string_of_expr e1 var_cnt var_list ;"    not %rax\n"]
@@ -158,7 +165,7 @@ let compile out decl_list =
   in let rec declare_string sl =
        match sl with
        |[] -> ""
-       |(string_name, string_value)::t -> String.concat "" [ declare_string t;"  "; string_name; ":\n    .string \"";string_value ;"\"\n" ]
-  in let str,n,var_list = string_of_dec decl_list 1 (global_var_dec decl_list []) false in
-  let final_str = String.concat "" [".data\n.align 8\n";define_global_var var_list;".text\n"; declare_string (!strings_list);".global main\n";str] in
+       |(string_name, string_value)::t -> String.concat "" [ declare_string t; string_name; ":\n    .string \"";string_value ;"\"\n" ]
+  in let str,n,var_list = string_of_dec decl_list 0 (global_var_dec decl_list []) false in
+  let final_str = String.concat "" [".bss\n.align 8\n.data\n";define_global_var var_list;".global main\n";".text\n"; declare_string (!strings_list);str] in
   Printf.fprintf out "%s" final_str;;
