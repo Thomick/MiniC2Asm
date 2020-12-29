@@ -16,6 +16,7 @@ let rec search_var_id s vl = match vl with
       else String.concat "" ["global_";v ;"(%rip)"]
     else search_var_id s t
 
+
 let rec define_global_var vl = match vl with
   |[] -> ""
   |(v,_,_)::t -> String.concat "" ["    global_";v ;": .long 0\n";define_global_var t]
@@ -43,7 +44,7 @@ let rec global_var_dec dl vl=
     |CFUN(_) -> global_var_dec t vl
 
 let compile out decl_list =
-  let strings_list = ref [] in
+  let strings_list = ref [] and long_functions = ref ["malloc";"fopen"; "atol"; "strtol"; "labs"] in
   let rec string_of_dec l n vl is_local = match l with
     |[] -> "",n,vl
     |h::suite ->
@@ -88,8 +89,10 @@ let compile out decl_list =
     |CRETURN(None) ->
       String.concat "" ["    mov $0, %rax\n    mov %rbp, %rsp\n    pop %rbp\n    ret\n"]
   and string_of_expr e var_cnt var_list = match e with
-    |VAR(s) ->
-      String.concat "" ["    mov ";search_var_id s var_list; ", %rax\n"]
+    |VAR(s) -> if s = "stdin" || s = "stderr" || s = "stdout" then
+        String.concat "" ["    mov ";s;"(%rip), %rax\n"]
+      else
+        String.concat "" ["    mov ";search_var_id s var_list; ", %rax\n"]
     |CST(p) ->
       String.concat "" ["    mov $";string_of_int p;", %rax\n"]
     |STRING(s) -> (let string_name = genlab "string" in
@@ -103,14 +106,13 @@ let compile out decl_list =
                         string_of_expr e1 var_cnt var_list ;", ";
                         string_of_expr e2 var_cnt var_list ;"}"]
     |CALL(s,l) ->
-      (let list=set_args l 1 var_cnt var_list and nb_args = List.length l in
-       if nb_args < 7 then 
-         if (var_cnt) mod 2 = 1 then
-           (String.concat "" [list;"    mov $0, %rax\n    call ";s;"\n    movsx %eax, %rax\n"])
-         else (String.concat "" ["    sub $8, %rsp\n";list;"    mov $0, %rax\n    call ";s;"\n    movsx %eax, %rax\n    add $8, %rsp\n"])
-       else if (var_cnt + nb_args) mod 2 = 1 then 
-         (String.concat "" [list;"    mov $0, %rax\n    call ";s;"\n    movsx %eax, %rax\n    add $";string_of_int (8*(nb_args-6));", %rsp\n"])
-       else (String.concat "" ["    sub $8, %rsp\n";list;"    mov $0, %rax\n    call ";s;"\n    movsx %eax, %rax\n    add $";string_of_int (8*(nb_args-6+1));", %rsp\n"]))
+      (let list=set_args l 1 var_cnt var_list and nb_args = List.length l and is_long = List.mem s (!long_functions) in
+       let is_aligned = (nb_args<7 && (var_cnt) mod 2 = 1) ||(nb_args>=7 && (var_cnt + nb_args) mod 2 = 1) in
+       let correct_begin = if is_aligned then "" else "    sub $8, %rsp\n"
+       and correct_end = if is_aligned then "" else "    add $8, %rsp\n"
+       and unstack = if nb_args >= 7 then String.concat "" ["    add $";string_of_int (8*(nb_args-6));", %rsp\n"] else ""
+       and convert = if is_long then "" else "    movsx %eax, %rax\n" in
+       String.concat "" [correct_begin;list;"    mov $0, %rax\n    call ";s;"\n";convert;unstack;correct_end])
     |OP1(mop,(_,e1)) ->(match mop with
         |M_MINUS    -> String.concat "" [string_of_expr e1 var_cnt var_list ;"    neg %rax\n"]
         |M_NOT      -> String.concat "" [string_of_expr e1 var_cnt var_list ;"    not %rax\n"]
@@ -162,10 +164,16 @@ let compile out decl_list =
     |C_LT -> "    setl %al\n"
     |C_LE -> "    setle %al\n"
     |C_EQ -> "    sete %al\n"
+  in let rec add_user_functions dl =
+       match dl with
+       |[] -> ()
+       |CFUN(_,f,_,_)::t -> (long_functions := f::(!long_functions);
+                             add_user_functions t)
+       |CDECL(_)::t -> add_user_functions t
   in let rec declare_string sl =
        match sl with
        |[] -> ""
        |(string_name, string_value)::t -> String.concat "" [ declare_string t; string_name; ":\n    .string \"";string_value ;"\"\n" ]
-  in let str,n,var_list = string_of_dec decl_list 0 (global_var_dec decl_list []) false in
-  let final_str = String.concat "" [".bss\n.align 8\n.data\n";define_global_var var_list;".global main\n";".text\n"; declare_string (!strings_list);str] in
-  Printf.fprintf out "%s" final_str;;
+  in (add_user_functions decl_list ;let str,n,var_list = string_of_dec decl_list 0 (global_var_dec decl_list []) false in
+      let final_str = String.concat "" [".bss\n.align 8\n.data\n";define_global_var var_list;".global main\n";".text\n"; declare_string (!strings_list);str] in
+      Printf.fprintf out "%s" final_str);;
