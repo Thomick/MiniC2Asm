@@ -34,3 +34,4 @@ mcc
 a.out
 Tests_gcc_mcc/
 *.py
+*.txt

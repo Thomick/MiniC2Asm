@@ -102,9 +102,9 @@ let compile out decl_list =
       let expr_str = string_of_expr e1 var_cnt var_list in
       String.concat "" [expr_str; "    mov %rax, ";search_var_id s var_list; "\n"]
     |SET_ARRAY(s,(_,e1),(_,e2)) ->
-      String.concat "" ["SET_ARRAY{";s;", ";
-                        string_of_expr e1 var_cnt var_list ;", ";
-                        string_of_expr e2 var_cnt var_list ;"}"]
+      String.concat "" [string_of_expr e1 var_cnt var_list ;"    push %rax\n";
+                        string_of_expr e2 var_cnt var_list ;"    pop %rcx\n";
+                        "    mov ";search_var_id s var_list;", %rdi\n";"    mov %rax, (%rdi,%rcx,8)\n"]
     |CALL(s,l) ->
       (let list=set_args l 1 var_cnt var_list and nb_args = List.length l and is_long = List.mem s (!long_functions) in
        let is_aligned = (nb_args<7 && (var_cnt) mod 2 = 1) ||(nb_args>=7 && (var_cnt + nb_args) mod 2 = 1) in
@@ -117,12 +117,16 @@ let compile out decl_list =
         |M_MINUS    -> String.concat "" [string_of_expr e1 var_cnt var_list ;"    neg %rax\n"]
         |M_NOT      -> String.concat "" [string_of_expr e1 var_cnt var_list ;"    not %rax\n"]
         |M_POST_INC -> (match e1 with |VAR(s) -> String.concat "" [string_of_expr e1 var_cnt var_list ;"    incq ";search_var_id s var_list;"\n"]
+                                      |OP2(S_INDEX,a,b) -> String.concat "" [string_of_expr (OP2(S_INDEX,a,b)) var_cnt var_list ;"   incq (%rdi,%rcx,8)\n"]
                                       |_ -> failwith "You can only increment variables")
         |M_POST_DEC -> (match e1 with |VAR(s) -> String.concat "" [string_of_expr e1 var_cnt var_list ;"    decq ";search_var_id s var_list;"\n"]
+                                      |OP2(S_INDEX,a,b) -> String.concat "" [string_of_expr (OP2(S_INDEX,a,b)) var_cnt var_list ;"   decq (%rdi,%rcx,8)\n"]
                                       |_ -> failwith "You can only decrement variables")
         |M_PRE_INC  -> (match e1 with |VAR(s) -> String.concat "" ["    incq ";search_var_id s var_list;"\n";string_of_expr e1 var_cnt var_list]
+                                      |OP2(S_INDEX,a,b) -> String.concat "" [string_of_expr (OP2(S_INDEX,a,b)) var_cnt var_list ;"   incq (%rdi,%rcx,8)\n";"   incq %rax\n"]
                                       |_ -> failwith "You can only increment variables")
         |M_PRE_DEC  -> (match e1 with |VAR(s) -> String.concat "" ["    decq ";search_var_id s var_list;"\n";string_of_expr e1 var_cnt var_list]
+                                      |OP2(S_INDEX,a,b) -> String.concat "" [string_of_expr (OP2(S_INDEX,a,b)) var_cnt var_list ;"   decq (%rdi,%rcx,8)\n";"   decq %rax\n"]
                                       |_ -> failwith "You can only decrement variables"))
     |OP2(bop,(_,e1),(_,e2)) ->
       String.concat "" [string_of_expr e2 var_cnt var_list ;"    push %rax\n";string_of_expr e1 var_cnt var_list ; "    pop %rcx\n";string_of_binop bop]
@@ -159,7 +163,7 @@ let compile out decl_list =
     |S_MOD   -> "    cqo\n    idiv %rcx\n    mov %rdx, %rax\n"
     |S_ADD   -> "    add %rcx, %rax\n"
     |S_SUB   -> "    sub %rcx, %rax\n"
-    |S_INDEX -> "S_INDEX"
+    |S_INDEX -> "    mov %rax, %rdi\n    mov (%rdi,%rcx,8), %rax\n"
   and string_of_cmpop cop = match cop with
     |C_LT -> "    setl %al\n"
     |C_LE -> "    setle %al\n"
