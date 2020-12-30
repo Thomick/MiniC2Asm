@@ -12,7 +12,7 @@ let rec print_list l =
 let rec search_var_id s vl = match vl with
   |[] -> failwith (String.concat "" ["Indefined variable "; s])
   |(v,vid,is_local)::t -> if v=s then 
-      if is_local then String.concat "" ["-";string_of_int (8*vid) ;"(%rbp)"]
+      if is_local then String.concat "" ["-";string_of_int (8*(vid+1)) ;"(%rbp)"]
       else String.concat "" ["global_";v ;"(%rip)"]
     else search_var_id s t
 
@@ -26,13 +26,13 @@ let rec gather_args arg_list count var_list =
   |[] -> "",count,var_list
   |CDECL(_,var)::t -> (let str_next, var_count_next, var_list_next =  gather_args t (count+1) ((var,count,true)::var_list) in
                        match count with
-                       |1 -> (String.concat "" ["    push %rdi\n"; str_next]), var_count_next, var_list_next
-                       |2 -> (String.concat "" ["    push %rsi\n"; str_next]), var_count_next, var_list_next
-                       |3 -> (String.concat "" ["    push %rdx\n"; str_next]), var_count_next, var_list_next
-                       |4 -> (String.concat "" ["    push %rcx\n"; str_next]), var_count_next, var_list_next
-                       |5 -> (String.concat "" ["    push %r8\n"; str_next]), var_count_next, var_list_next
-                       |6 -> (String.concat "" ["    push %r9\n"; str_next]), var_count_next, var_list_next
-                       |_ -> (String.concat "" ["    push ";string_of_int (8*(count-5));"(%rbp)\n"; str_next]), var_count_next, var_list_next)
+                       |0 -> (String.concat "" ["    push %rdi\n"; str_next]), var_count_next, var_list_next
+                       |1 -> (String.concat "" ["    push %rsi\n"; str_next]), var_count_next, var_list_next
+                       |2 -> (String.concat "" ["    push %rdx\n"; str_next]), var_count_next, var_list_next
+                       |3 -> (String.concat "" ["    push %rcx\n"; str_next]), var_count_next, var_list_next
+                       |4 -> (String.concat "" ["    push %r8\n"; str_next]), var_count_next, var_list_next
+                       |5 -> (String.concat "" ["    push %r9\n"; str_next]), var_count_next, var_list_next
+                       |_ -> (String.concat "" ["    push ";string_of_int (8*(count-4));"(%rbp)\n"; str_next]), var_count_next, var_list_next)
 
   |CFUN(_,_,_,_)::t -> failwith "Syntax error : can't define a function inside the argument declaration of another function"
 
@@ -59,7 +59,7 @@ let compile out decl_list =
           if is_local then
             failwith "Error : Functions can only be declared in the global scope"
           else
-            let dec_string , f_var_cnt , f_var_list = gather_args args 1 vl in
+            let dec_string , f_var_cnt , f_var_list = gather_args args 0 vl in
             let cur_str = String.concat "" ["\n";f;":\n    push %rbp\n    mov %rsp, %rbp\n";
                                             dec_string;
                                             string_of_code code f_var_cnt f_var_list]
@@ -106,13 +106,13 @@ let compile out decl_list =
                         string_of_expr e2 var_cnt var_list ;"    pop %rcx\n";
                         "    mov ";search_var_id s var_list;", %rdi\n";"    mov %rax, (%rdi,%rcx,8)\n"]
     |CALL(s,l) ->
-      (let list=set_args l 1 var_cnt var_list and nb_args = List.length l and is_long = List.mem s (!long_functions) in
-       let is_aligned = (nb_args<7 && (var_cnt) mod 2 = 1) ||(nb_args>=7 && (var_cnt + nb_args) mod 2 = 1) in
-       let correct_begin = if is_aligned then "" else "    sub $8, %rsp\n"
-       and correct_end = if is_aligned then "" else "    add $8, %rsp\n"
-       and unstack = if nb_args >= 7 then String.concat "" ["    add $";string_of_int (8*(nb_args-6));", %rsp\n"] else ""
-       and convert = if is_long then "" else "    movsx %eax, %rax\n" in
-       String.concat "" [correct_begin;list;"    mov $0, %rax\n    call ";s;"\n";convert;unstack;correct_end])
+      let list=set_args l 0 var_cnt var_list and nb_args = List.length l and is_long = List.mem s (!long_functions) in
+      let is_aligned = (nb_args<7 && (var_cnt mod 2 = 0)) ||(nb_args>=7 && ((var_cnt + nb_args) mod 2 = 0)) in
+      let correct_begin = if is_aligned then "" else "    sub $8, %rsp\n"
+      and correct_end = if is_aligned then "" else "    add $8, %rsp\n"
+      and unstack = if nb_args >= 7 then String.concat "" ["    add $";string_of_int (8*(nb_args-6));", %rsp\n"] else ""
+      and convert = if is_long then "" else "    movsx %eax, %rax\n" in
+      String.concat "" [correct_begin;list;"    mov $0, %rax\n    call ";s;"\n";convert;unstack;correct_end]
     |OP1(mop,(_,e1)) ->(match mop with
         |M_MINUS    -> String.concat "" [string_of_expr e1 var_cnt var_list ;"    neg %rax\n"]
         |M_NOT      -> String.concat "" [string_of_expr e1 var_cnt var_list ;"    not %rax\n"]
@@ -146,12 +146,12 @@ let compile out decl_list =
     match expr_list with
     |[] -> ""
     |(_,exp)::t -> (match arg_cnt with 
-        |1 -> (String.concat "" [set_args t (arg_cnt+1) var_cnt var_list; string_of_expr exp var_cnt var_list; "    mov %rax, %rdi\n"])
-        |2 -> (String.concat "" [set_args t (arg_cnt+1) var_cnt var_list; string_of_expr exp var_cnt var_list; "    mov %rax, %rsi\n"])
-        |3 -> (String.concat "" [set_args t (arg_cnt+1) var_cnt var_list; string_of_expr exp var_cnt var_list; "    mov %rax, %rdx\n"])
-        |4 -> (String.concat "" [set_args t (arg_cnt+1) var_cnt var_list; string_of_expr exp var_cnt var_list; "    mov %rax, %rcx\n"])
-        |5 -> (String.concat "" [set_args t (arg_cnt+1) var_cnt var_list; string_of_expr exp var_cnt var_list; "    mov %rax, %r8\n"])
-        |6 -> (String.concat "" [set_args t (arg_cnt+1) var_cnt var_list; string_of_expr exp var_cnt var_list; "    mov %rax, %r9\n"])
+        |0 -> (String.concat "" [set_args t (arg_cnt+1) var_cnt var_list; string_of_expr exp var_cnt var_list; "    mov %rax, %rdi\n"])
+        |1 -> (String.concat "" [set_args t (arg_cnt+1) var_cnt var_list; string_of_expr exp var_cnt var_list; "    mov %rax, %rsi\n"])
+        |2 -> (String.concat "" [set_args t (arg_cnt+1) var_cnt var_list; string_of_expr exp var_cnt var_list; "    mov %rax, %rdx\n"])
+        |3 -> (String.concat "" [set_args t (arg_cnt+1) var_cnt var_list; string_of_expr exp var_cnt var_list; "    mov %rax, %rcx\n"])
+        |4 -> (String.concat "" [set_args t (arg_cnt+1) var_cnt var_list; string_of_expr exp var_cnt var_list; "    mov %rax, %r8\n"])
+        |5 -> (String.concat "" [set_args t (arg_cnt+1) var_cnt var_list; string_of_expr exp var_cnt var_list; "    mov %rax, %r9\n"])
         |_ -> (String.concat "" [set_args t (arg_cnt+1) var_cnt var_list; string_of_expr exp var_cnt var_list; "    push %rax\n"]))
   and string_of_codelist l var_cnt var_list = match l with
     |[] -> ""
@@ -177,7 +177,7 @@ let compile out decl_list =
   in let rec declare_string sl =
        match sl with
        |[] -> ""
-       |(string_name, string_value)::t -> String.concat "" [ declare_string t; string_name; ":\n    .string \"";string_value ;"\"\n" ]
+       |(string_name, string_value)::t -> String.concat "" [ declare_string t; string_name; ":\n    .string ";Printf.sprintf "%S" string_value ;"\n" ]
   in (add_user_functions decl_list ;let str,n,var_list = string_of_dec decl_list 0 (global_var_dec decl_list []) false in
       let final_str = String.concat "" [".bss\n.align 8\n.data\n";define_global_var var_list;".global main\n";".text\n"; declare_string (!strings_list);str] in
       Printf.fprintf out "%s" final_str);;
