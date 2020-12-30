@@ -19,7 +19,7 @@ let rec search_var_id s vl = match vl with
 
 let rec define_global_var vl = match vl with
   |[] -> ""
-  |(v,_,_)::t -> String.concat "" ["    global_";v ;": .long 0\n";define_global_var t]
+  |(v,_,_)::t -> String.concat "" ["    global_";v ;": .quad 0\n";define_global_var t]
 
 let rec gather_args arg_list count var_list =
   match arg_list with
@@ -62,7 +62,7 @@ let compile out decl_list =
             let dec_string , f_var_cnt , f_var_list = gather_args args 0 vl in
             let cur_str = String.concat "" ["\n";f;":\n    push %rbp\n    mov %rsp, %rbp\n";
                                             dec_string;
-                                            string_of_code code f_var_cnt f_var_list]
+                                            string_of_code code f_var_cnt f_var_list; string_of_code (CRETURN(None)) 0 []]
             in let l,_, _ = string_of_dec suite n vl is_local in
             String.concat "" [cur_str;l] , n, vl
       end
@@ -86,8 +86,7 @@ let compile out decl_list =
                         "    jmp "; label_begin;"\n";label_end;":\n"]
     |CRETURN(Some(_,e)) ->
       String.concat "" [string_of_expr e var_cnt var_list;"    mov %rbp, %rsp\n    pop %rbp\n    ret\n"]
-    |CRETURN(None) ->
-      String.concat "" ["    mov $0, %rax\n    mov %rbp, %rsp\n    pop %rbp\n    ret\n"]
+    |CRETURN(None) -> "    mov $0, %rax\n    mov %rbp, %rsp\n    pop %rbp\n    ret\n"
   and string_of_expr e var_cnt var_list = match e with
     |VAR(s) -> if s = "stdin" || s = "stderr" || s = "stdout" then
         String.concat "" ["    mov ";s;"(%rip), %rax\n"]
