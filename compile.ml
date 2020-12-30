@@ -105,7 +105,7 @@ let compile out decl_list =
                         string_of_expr e2 var_cnt var_list ;"    pop %rcx\n";
                         "    mov ";search_var_id s var_list;", %rdi\n";"    mov %rax, (%rdi,%rcx,8)\n"]
     |CALL(s,l) ->
-      let list=set_args l 0 var_cnt var_list and nb_args = List.length l and is_long = List.mem s (!long_functions) in
+      let list=set_args l var_cnt var_list and nb_args = List.length l and is_long = List.mem s (!long_functions) in
       let is_aligned = (nb_args<7 && (var_cnt mod 2 = 0)) ||(nb_args>=7 && ((var_cnt + nb_args) mod 2 = 0)) in
       let correct_begin = if is_aligned then "" else "    sub $8, %rsp\n"
       and correct_end = if is_aligned then "" else "    add $8, %rsp\n"
@@ -141,17 +141,25 @@ let compile out decl_list =
                   |[] -> ""
                   |h::t -> String.concat "" [string_of_expr (e_of_expr h) var_cnt var_list ;seq t]
       in seq l
-  and set_args expr_list arg_cnt var_cnt var_list = 
-    match expr_list with
-    |[] -> ""
-    |(_,exp)::t -> (match arg_cnt with 
-        |0 -> (String.concat "" [set_args t (arg_cnt+1) var_cnt var_list; string_of_expr exp var_cnt var_list; "    mov %rax, %rdi\n"])
-        |1 -> (String.concat "" [set_args t (arg_cnt+1) var_cnt var_list; string_of_expr exp var_cnt var_list; "    mov %rax, %rsi\n"])
-        |2 -> (String.concat "" [set_args t (arg_cnt+1) var_cnt var_list; string_of_expr exp var_cnt var_list; "    mov %rax, %rdx\n"])
-        |3 -> (String.concat "" [set_args t (arg_cnt+1) var_cnt var_list; string_of_expr exp var_cnt var_list; "    mov %rax, %rcx\n"])
-        |4 -> (String.concat "" [set_args t (arg_cnt+1) var_cnt var_list; string_of_expr exp var_cnt var_list; "    mov %rax, %r8\n"])
-        |5 -> (String.concat "" [set_args t (arg_cnt+1) var_cnt var_list; string_of_expr exp var_cnt var_list; "    mov %rax, %r9\n"])
-        |_ -> (String.concat "" [set_args t (arg_cnt+1) var_cnt var_list; string_of_expr exp var_cnt var_list; "    push %rax\n"]))
+  and set_args expr_list var_cnt var_list = 
+    let rec push_all el arg_cnt = 
+      match el with
+      |[] -> "", arg_cnt
+      |(_,exp)::t -> let prev_str, nb_arg = push_all t (arg_cnt+1)
+        in String.concat "" [prev_str; string_of_expr exp var_cnt var_list; "    push %rax\n"], nb_arg
+    and move_to_reg nb_arg n = 
+      if n>=min nb_arg 6 then ""
+      else
+        match n with 
+        |0 -> String.concat "" ["    pop %rdi\n";move_to_reg nb_arg (n+1)]
+        |1 -> String.concat "" ["    pop %rsi\n";move_to_reg nb_arg (n+1)]
+        |2 -> String.concat "" ["    pop %rdx\n";move_to_reg nb_arg (n+1)]
+        |3 -> String.concat "" ["    pop %rcx\n";move_to_reg nb_arg (n+1)]
+        |4 -> String.concat "" ["    pop %r8\n";move_to_reg nb_arg (n+1)]
+        |5 -> String.concat "" ["    pop %r9\n";move_to_reg nb_arg (n+1)]
+        |_ -> failwith "This case should never happen"
+    in let expr_str, nb_arg = push_all expr_list 0 
+    in String.concat "" [expr_str; move_to_reg nb_arg 0]
   and string_of_codelist l var_cnt var_list = match l with
     |[] -> ""
     |(_,code)::r ->
