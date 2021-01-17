@@ -16,7 +16,7 @@ let compile out decl_list =
          else get_var_ref s t
 
   in let rec string_of_dec l n vl is_local = 
-       (* resturns asm code from the declaration list l
+       (* returns asm code from the declaration list l
         * n is the local variable count, vl the current variable list, is_local tells if the declaration is inside a function or not *)
        match l with
        |[] -> "",n,vl
@@ -63,10 +63,13 @@ let compile out decl_list =
     |CBLOCK(decs,code) ->
       let dec_string, new_var_cnt,new_var_list = string_of_dec decs var_cnt var_list true in
       if new_var_cnt <> 0 then
-        String.concat "" [dec_string;
-                          "    sub $"; string_of_int (8*(new_var_cnt-var_cnt)); ", %rsp\n";
-                          string_of_codelist code new_var_cnt new_var_list;
-                          "    add $"; string_of_int (8*(new_var_cnt-var_cnt)); ", %rsp\n"]
+        (* Move the stack pointer just after the last local variable *)
+        let allocation_str = if new_var_cnt = var_cnt then "" else String.concat "" ["    sub $"; string_of_int (8*(new_var_cnt-var_cnt)); ", %rsp\n"]
+        and deallocation_str = if new_var_cnt = var_cnt then "" else String.concat "" ["    add $"; string_of_int (8*(new_var_cnt-var_cnt)); ", %rsp\n"]
+        in String.concat "" [dec_string;
+                             allocation_str;
+                             string_of_codelist code new_var_cnt new_var_list;
+                             deallocation_str]
       else
         String.concat "" [dec_string; string_of_codelist code new_var_cnt new_var_list]
     |CEXPR((_,e)) ->
@@ -88,8 +91,8 @@ let compile out decl_list =
                         "    jmp "; label_begin;"\n";
                         label_end;":\n"]
     |CRETURN(Some(_,e)) ->
-      String.concat "" [string_of_expr e var_cnt var_list;"    mov %rbp, %rsp\n    pop %rbp\n    ret\n"]
-    |CRETURN(None) -> "    mov $0, %rax\n    mov %rbp, %rsp\n    pop %rbp\n    ret\n"
+      String.concat "" [string_of_expr e var_cnt var_list;"    leave\n    ret\n"]
+    |CRETURN(None) -> "    mov $0, %rax\n    leave\n    ret\n"
 
   and string_of_expr e var_cnt var_list = match e with
     (* Returns asm code from the expression e, the results of the expression is stored in the rax register
@@ -229,7 +232,7 @@ let compile out decl_list =
        match sl with
        |[] -> ""
        |(string_name, string_value)::t -> String.concat "" [declare_string t; 
-                                                            string_name; ":\n    .string ";Printf.sprintf "%S" string_value ;"\n" ]
+                                                            string_name; ":    .string ";Printf.sprintf "%S" string_value ;"\n" ]
 
   in let rec append_global_var dl vl= 
        (* Appends the variables from the declaration list dl to the variable list vl and returns the result
