@@ -32,7 +32,7 @@ Pour ces dernières, j'ai donc choisi de ne pas nécessairement me conformer au 
 
 \section{Approche suivie lors du développement}
 J'ai réalisé un squelette de code explorant la totalité de l'AST en m'inspirant du code de \texttt{cprint.ml}.
-Chaque fonction créée renvoie le code approprié pour au type en entrée(par exemple \texttt{string\_of\_dec} renvoie le code relatif à la liste de déclaration en entrée).
+Chaque fonction créée renvoie le code approprié au type en entrée(par exemple \texttt{string\_of\_dec} renvoie le code relatif à la liste de déclaration en entrée).
 J'ai ensuite procédé de manière incrémentale en implémentant les différentes fonctionnalités une par une et en testant les nouvelles fonctionnalités au fur et à mesure.
 L'ordre suivi pour implémenter le compilateur a été le suivant :
 \begin{itemize}
@@ -208,7 +208,7 @@ Il pourrait être intéressant d'en avoir un aperçu (même superficiel) en déb
 Au cours du projet j'ai été amené à lire une certaine quantité de code assembleur afin de trouver des erreurs.
 J'ai pu trouver des indices et des combinaisons de mots-clefs qui ont permis à mon code de fonctionner.
 Cette recherche fastidieuse et souvent peu instructive ne me paraît pas être l'objectif initial de ce projet.
-Le mise à disposition d'une page "foire aux questions" me semble avoir été une très bonne idée pour empêcher les élèves de rester bloqués su des détails parfois obscurs de la programmation assembleur.
+Le mise à disposition d'une page "foire aux questions" me semble avoir été une très bonne idée pour empêcher les élèves de rester bloqués sur des détails parfois obscurs de la programmation assembleur.
 
 \section{Conclusion}
 La partie de ce projet dont je suis le plus fier est peut-être la gestion des variables et de leur portée.
@@ -217,7 +217,7 @@ L'implémentation de la portée des variables s'intègre également très bien a
 
 Je suis également assez fier de l'implémentation générale de mon compilateur.
 Le code s'inscrit dans un style de programmation fonctionnelle malgré certains compromis en faveur de la clarté du code.
-Les chaînes de caractères ainsi que la liste des fonctions auraient pu être implémentées dans un style fonctionnel en ajoutant des arguments et des valeurs de retour supplémentaires aux différentes fonctions constituant le parcours de l'AST.
+En effet, les chaînes de caractères ainsi que la liste des fonctions auraient pu être également implémentées dans un style fonctionnel en ajoutant des arguments et des valeurs de retour supplémentaires aux différentes fonctions constituant le parcours de l'AST.
 L'effet de ce style se retrouve également dans la relative concision du code du fichier \ttt{compile.ml}.
 
 Je pense que l'objectif a été atteint : implémentation en OCaml d'un compilateur \Cmm respectant la sémantique.

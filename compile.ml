@@ -15,7 +15,7 @@ let compile out decl_list =
            else String.concat "" ["global_";v ;"(%rip)"]
          else get_var_ref s t
 
-  in let rec string_of_dec l n vl is_local = 
+  in let rec asm_of_dec l n vl is_local = 
        (* returns asm code from the declaration list l
         * n is the local variable count, vl the current variable list, is_local tells if the declaration is inside a function or not *)
        match l with
@@ -25,9 +25,9 @@ let compile out decl_list =
            match h with
            |CDECL(_,var) ->
              if is_local then
-               string_of_dec suite (n+1) ((var,n,is_local)::vl) is_local
+               asm_of_dec suite (n+1) ((var,n,is_local)::vl) is_local
              else
-               string_of_dec suite n vl is_local
+               asm_of_dec suite n vl is_local
            |CFUN(_,f,args,(_,code)) ->
              if is_local then
                failwith "Error : Functions can only be declared in the global scope"
@@ -36,8 +36,8 @@ let compile out decl_list =
                let cur_str = String.concat "" ["\n";f;":\n";
                                                "    push %rbp\n    mov %rsp, %rbp\n";
                                                dec_string;
-                                               string_of_code code f_var_cnt f_var_list; string_of_code (CRETURN(None)) 0 []]
-               in let l,_, _ = string_of_dec suite n vl is_local in
+                                               asm_of_code code f_var_cnt f_var_list; asm_of_code (CRETURN(None)) 0 []]
+               in let l,_, _ = asm_of_dec suite n vl is_local in
                String.concat "" [cur_str;l] , n, vl
          end
 
@@ -57,44 +57,44 @@ let compile out decl_list =
                          |_ -> (String.concat "" ["    push ";string_of_int (8*(count-4));"(%rbp)\n"; str_next]), var_count_next, var_list_next)
     |CFUN(_)::t -> failwith "Syntax error : can't define a function inside the argument declaration of another function"
 
-  and string_of_code c var_cnt var_list = match c with
+  and asm_of_code c var_cnt var_list = match c with
     (* Returns asm code from the code c
      * var_cnt is the current number of local variables, var_list is a variable list*)
     |CBLOCK(decs,code) ->
-      let dec_string, new_var_cnt,new_var_list = string_of_dec decs var_cnt var_list true in
+      let dec_string, new_var_cnt,new_var_list = asm_of_dec decs var_cnt var_list true in
       if new_var_cnt <> 0 then
         (* Move the stack pointer just after the last local variable *)
         let allocation_str = if new_var_cnt = var_cnt then "" else String.concat "" ["    sub $"; string_of_int (8*(new_var_cnt-var_cnt)); ", %rsp\n"]
         and deallocation_str = if new_var_cnt = var_cnt then "" else String.concat "" ["    add $"; string_of_int (8*(new_var_cnt-var_cnt)); ", %rsp\n"]
         in String.concat "" [dec_string;
                              allocation_str;
-                             string_of_codelist code new_var_cnt new_var_list;
+                             asm_of_codelist code new_var_cnt new_var_list;
                              deallocation_str]
       else
-        String.concat "" [dec_string; string_of_codelist code new_var_cnt new_var_list]
+        String.concat "" [dec_string; asm_of_codelist code new_var_cnt new_var_list]
     |CEXPR((_,e)) ->
-      String.concat "" [string_of_expr e var_cnt var_list]
+      String.concat "" [asm_of_expr e var_cnt var_list]
     |CIF((_,e),(_,c1),(_,c2)) ->
       let label_e3 = genlab "else" and label_post = genlab "if_post" in
-      String.concat "" [string_of_expr e var_cnt var_list;
+      String.concat "" [asm_of_expr e var_cnt var_list;
                         "    cmp $0, %rax\n    je ";label_e3;"\n";
-                        string_of_code c1 var_cnt var_list ;
+                        asm_of_code c1 var_cnt var_list ;
                         "    jmp "; label_post;"\n";
-                        label_e3;":\n"; string_of_code c2 var_cnt var_list ;
+                        label_e3;":\n"; asm_of_code c2 var_cnt var_list ;
                         label_post;":\n"]
     |CWHILE((_,e),(_,c)) ->
       let label_begin = genlab "while_begin" and label_end = genlab "while_end" in
       String.concat "" [label_begin;":\n";
-                        string_of_expr e var_cnt var_list;
+                        asm_of_expr e var_cnt var_list;
                         "    cmp $0, %rax\n    je ";label_end;"\n";
-                        string_of_code c var_cnt var_list;
+                        asm_of_code c var_cnt var_list;
                         "    jmp "; label_begin;"\n";
                         label_end;":\n"]
     |CRETURN(Some(_,e)) ->
-      String.concat "" [string_of_expr e var_cnt var_list;"    leave\n    ret\n"]
+      String.concat "" [asm_of_expr e var_cnt var_list;"    leave\n    ret\n"]
     |CRETURN(None) -> "    mov $0, %rax\n    leave\n    ret\n"
 
-  and string_of_expr e var_cnt var_list = match e with
+  and asm_of_expr e var_cnt var_list = match e with
     (* Returns asm code from the expression e, the results of the expression is stored in the rax register
      * var_cnt is the current number of local variables, var_list is a variable list*)
     |VAR(s) -> if s = "stdin" || s = "stderr" || s = "stdout" then
@@ -107,11 +107,11 @@ let compile out decl_list =
                    strings_list := (string_name, s)::(!strings_list);
                    String.concat "" ["    lea ";string_name;"(%rip), %rax\n"])
     |SET_VAR(s,(_,e1)) ->
-      let expr_str = string_of_expr e1 var_cnt var_list in
+      let expr_str = asm_of_expr e1 var_cnt var_list in
       String.concat "" [expr_str; "    mov %rax, ";get_var_ref s var_list;"\n"]
     |SET_ARRAY(s,(_,e1),(_,e2)) ->
-      String.concat "" [string_of_expr e1 var_cnt var_list;"    push %rax\n";
-                        string_of_expr e2 (var_cnt+1) var_list;"    pop %rcx\n";
+      String.concat "" [asm_of_expr e1 var_cnt var_list;"    push %rax\n";
+                        asm_of_expr e2 (var_cnt+1) var_list;"    pop %rcx\n";
                         "    mov ";get_var_ref s var_list;", %rdi\n";"    mov %rax, (%rdi,%rcx,8)\n"]
     |CALL(s,l) ->
       let set_args_string=set_args l var_cnt var_list and nb_args = List.length l 
@@ -130,50 +130,50 @@ let compile out decl_list =
                         "    mov $0, %rax\n    call ";s;"\n";
                         convert;unstack;correct_end]
     |OP1(mop,(_,e1)) ->(match mop with
-        |M_MINUS    -> String.concat "" [string_of_expr e1 var_cnt var_list ;"    neg %rax\n"]
-        |M_NOT      -> String.concat "" [string_of_expr e1 var_cnt var_list ;"    not %rax\n"]
-        |M_POST_INC -> (match e1 with |VAR(s) -> String.concat "" [string_of_expr e1 var_cnt var_list ;
+        |M_MINUS    -> String.concat "" [asm_of_expr e1 var_cnt var_list ;"    neg %rax\n"]
+        |M_NOT      -> String.concat "" [asm_of_expr e1 var_cnt var_list ;"    not %rax\n"]
+        |M_POST_INC -> (match e1 with |VAR(s) -> String.concat "" [asm_of_expr e1 var_cnt var_list ;
                                                                    "    incq ";get_var_ref s var_list;"\n"]
-                                      |OP2(S_INDEX,a,b) -> String.concat "" [string_of_expr (OP2(S_INDEX,a,b)) var_cnt var_list ;
+                                      |OP2(S_INDEX,a,b) -> String.concat "" [asm_of_expr (OP2(S_INDEX,a,b)) var_cnt var_list ;
                                                                              "   incq (%rdi,%rcx,8)\n"]
                                       |_ -> failwith "You can only increment variables")
-        |M_POST_DEC -> (match e1 with |VAR(s) -> String.concat "" [string_of_expr e1 var_cnt var_list ;
+        |M_POST_DEC -> (match e1 with |VAR(s) -> String.concat "" [asm_of_expr e1 var_cnt var_list ;
                                                                    "    decq ";get_var_ref s var_list;"\n"]
-                                      |OP2(S_INDEX,a,b) -> String.concat "" [string_of_expr (OP2(S_INDEX,a,b)) var_cnt var_list ;
+                                      |OP2(S_INDEX,a,b) -> String.concat "" [asm_of_expr (OP2(S_INDEX,a,b)) var_cnt var_list ;
                                                                              "   decq (%rdi,%rcx,8)\n"]
                                       |_ -> failwith "You can only decrement variables")
         |M_PRE_INC  -> (match e1 with |VAR(s) -> String.concat "" ["    incq ";get_var_ref s var_list;"\n";
-                                                                   string_of_expr e1 var_cnt var_list]
-                                      |OP2(S_INDEX,a,b) -> String.concat "" [string_of_expr (OP2(S_INDEX,a,b)) var_cnt var_list ;
+                                                                   asm_of_expr e1 var_cnt var_list]
+                                      |OP2(S_INDEX,a,b) -> String.concat "" [asm_of_expr (OP2(S_INDEX,a,b)) var_cnt var_list ;
                                                                              "   incq (%rdi,%rcx,8)\n";
                                                                              "   incq %rax\n"]
                                       |_ -> failwith "You can only increment variables")
         |M_PRE_DEC  -> (match e1 with |VAR(s) -> String.concat "" ["    decq ";get_var_ref s var_list;"\n";
-                                                                   string_of_expr e1 var_cnt var_list]
-                                      |OP2(S_INDEX,a,b) -> String.concat "" [string_of_expr (OP2(S_INDEX,a,b)) var_cnt var_list ;
+                                                                   asm_of_expr e1 var_cnt var_list]
+                                      |OP2(S_INDEX,a,b) -> String.concat "" [asm_of_expr (OP2(S_INDEX,a,b)) var_cnt var_list ;
                                                                              "   decq (%rdi,%rcx,8)\n";
                                                                              "   decq %rax\n"]
                                       |_ -> failwith "You can only decrement variables"))
     |OP2(bop,(_,e1),(_,e2)) ->
-      String.concat "" [string_of_expr e2 var_cnt var_list ;"    push %rax\n";
-                        string_of_expr e1 (var_cnt+1) var_list;
-                        "    pop %rcx\n";string_of_binop bop]
+      String.concat "" [asm_of_expr e2 var_cnt var_list ;"    push %rax\n";
+                        asm_of_expr e1 (var_cnt+1) var_list;
+                        "    pop %rcx\n";asm_of_binop bop]
     |CMP(cop,(_,e1),(_,e2)) ->
-      String.concat "" [string_of_expr e2 var_cnt var_list ;"    push %rax\n";
-                        string_of_expr e1 (var_cnt+1) var_list ;"    pop %rcx\n";
-                        "    cmp %rcx, %rax\n    mov $0, %rax\n";string_of_cmpop cop]
+      String.concat "" [asm_of_expr e2 var_cnt var_list ;"    push %rax\n";
+                        asm_of_expr e1 (var_cnt+1) var_list ;"    pop %rcx\n";
+                        "    cmp %rcx, %rax\n    mov $0, %rax\n";asm_of_cmpop cop]
     |EIF((_,e1),(_,e2),(_,e3)) ->
       let label_e3 = genlab "if_e3" and label_post = genlab "if_post" in
-      String.concat "" [string_of_expr e1 var_cnt var_list ;
+      String.concat "" [asm_of_expr e1 var_cnt var_list ;
                         "    cmp $0, %rax\n    je ";label_e3;"\n";
-                        string_of_expr e2 var_cnt var_list;
+                        asm_of_expr e2 var_cnt var_list;
                         "    jmp "; label_post;"\n";
-                        label_e3;":\n";string_of_expr e3 var_cnt var_list;
+                        label_e3;":\n";asm_of_expr e3 var_cnt var_list;
                         label_post;":\n"]
     |ESEQ(l) -> let rec seq li = 
                   match li with
                   |[] -> ""
-                  |h::t -> String.concat "" [string_of_expr (e_of_expr h) var_cnt var_list ;seq t]
+                  |h::t -> String.concat "" [asm_of_expr (e_of_expr h) var_cnt var_list ;seq t]
       in seq l
 
   and set_args expr_list var_cnt var_list = 
@@ -183,7 +183,7 @@ let compile out decl_list =
       match el with
       |[] -> "", arg_cnt
       |(_,exp)::t -> let prev_str, nb_arg = push_all t (arg_cnt+1)
-        in String.concat "" [prev_str; string_of_expr exp (var_cnt+nb_arg-arg_cnt+1) var_list; "    push %rax\n"], nb_arg
+        in String.concat "" [prev_str; asm_of_expr exp (var_cnt+nb_arg-arg_cnt+1) var_list; "    push %rax\n"], nb_arg
     and move_to_reg nb_arg n = (* Stores the first arguments in the correct registers *)
       if n>=min nb_arg 6 then ""
       else
@@ -198,13 +198,13 @@ let compile out decl_list =
     in let expr_str, nb_arg = push_all expr_list 0 
     in String.concat "" [expr_str; move_to_reg nb_arg 0]
 
-  and string_of_codelist l var_cnt var_list = (* Returns the concatenation of all the codes in the code list l *)
+  and asm_of_codelist l var_cnt var_list = (* Returns the concatenation of all the codes in the code list l *)
     match l with
     |[] -> ""
     |(_,code)::r ->
-      String.concat "" [string_of_code code var_cnt var_list;string_of_codelist r var_cnt var_list]
+      String.concat "" [asm_of_code code var_cnt var_list;asm_of_codelist r var_cnt var_list]
 
-  and string_of_binop bop = (* Returns the specific command relative to the binary operation bop (registers must be correctly set beforehand) *)
+  and asm_of_binop bop = (* Returns the specific command relative to the binary operation bop (registers must be correctly set beforehand) *)
     match bop with
     |S_MUL   -> "    imul %rcx, %rax\n"
     |S_DIV   -> "    cqo\n    idiv %rcx\n"
@@ -213,7 +213,7 @@ let compile out decl_list =
     |S_SUB   -> "    sub %rcx, %rax\n"
     |S_INDEX -> "    mov %rax, %rdi\n    mov (%rdi,%rcx,8), %rax\n"
 
-  and string_of_cmpop cop = (* Returns the specific command relative to the comparison operation cop (rax must be correctly set beforehand) *)
+  and asm_of_cmpop cop = (* Returns the specific command relative to the comparison operation cop (rax must be correctly set beforehand) *)
     match cop with
     |C_LT -> "    setl %al\n"
     |C_LE -> "    setle %al\n"
@@ -251,7 +251,7 @@ let compile out decl_list =
        |(v,_,_)::t -> String.concat "" ["    global_";v ;": .quad 0\n";declare_global_var t]
   in begin 
     add_user_functions decl_list;
-    let code,n,var_list = string_of_dec decl_list 0 (append_global_var decl_list []) false 
+    let code,n,var_list = asm_of_dec decl_list 0 (append_global_var decl_list []) false 
     in let final_str = String.concat "" [".bss\n.align 8\n.data\n";
                                          declare_global_var var_list;
                                          ".global main\n";".text\n";
